@@ -1,57 +1,99 @@
 'use strict';
+var pug = require('pug');
+var path = require('path');
+var yahooFinance = require('yahoo-finance');
+var Highcharts = require('highcharts/highstock');
+var bodyParser = require('body-parser');
 
-var path = process.cwd();
-var ClickHandler = require(path + '/app/controllers/clickHandler.server.js');
 
-module.exports = function (app, passport) {
+module.exports = function (io, app) {
 
-	function isLoggedIn (req, res, next) {
-		if (req.isAuthenticated()) {
-			return next();
-		} else {
-			res.redirect('/login');
-		}
-	}
+app.use(bodyParser.urlencoded({ extended: true }));	
 
-	var clickHandler = new ClickHandler();
+var date = new Date();
+var end = Date.parse(date);
+var start = end -  31556952000;
+var today = new Date().toJSON().substr(0, 10);
+var year = today.substr(0,4)-1;
+var old = String(year).concat(today.substr(4));
+var dataObjects = [];
+var symbols = [];
 
-	app.route('/')
-		.get(isLoggedIn, function (req, res) {
-			res.sendFile(path + '/public/index.html');
+
+function getStock(company, callback) {
+	yahooFinance.historical({
+		 symbol: company,
+		from: old,
+		to: today,
+		period: 'd'}, function(err, quotes) {
+			if (err) return console.log(err);
+			var stock = [];
+			quotes.forEach(function(element) {
+				var point = [];
+				point.push(element.date.getTime());
+				point.push(element.adjClose);
+				stock.unshift(point);
+			});
+			var object = {
+				name: company,
+				data: stock,
+			};
+			dataObjects.push(object);
+			callback();
 		});
+}
 
-	app.route('/login')
-		.get(function (req, res) {
-			res.sendFile(path + '/public/login.html');
-		});
+function getName(company, callback) {
+	yahooFinance.snapshot({
+		symbol: company,
+		fields: ['n']
+	}, function(err, snapshot) {
+		if (err) return console.log(err);
+		var profile = {
+			ticker: company,
+			name: snapshot.name
+		};
+		symbols.push(profile);
+		callback();
+	});
+}
 
-	app.route('/logout')
-		.get(function (req, res) {
-			req.logout();
-			res.redirect('/login');
-		});
+getStock('AMZN', function() {
+});
 
-	app.route('/profile')
-		.get(isLoggedIn, function (req, res) {
-			res.sendFile(path + '/public/profile.html');
-		});
+app.get('/', function(req, res){
+	var main = pug.renderFile(path.join(__dirname, '../../pug/stockchart.pug'), {stocks: dataObjects, from: start, end: end});
+	res.send(main);
+	});
+	
 
-	app.route('/api/:id')
-		.get(isLoggedIn, function (req, res) {
-			res.json(req.user.github);
-		});
 
-	app.route('/auth/github')
-		.get(passport.authenticate('github'));
+io.on('connection', function(socket){
+  console.log('a user connected');
+  socket.on('add company', function(symbol){
+    getName(symbol, function() {
+    	getStock(symbol, function() {
+			io.emit('add company', dataObjects, symbols);
+			});
+    });
+  });
+  socket.on('removeCompany', function(company) {
+  	console.log(company);
+  	dataObjects.forEach(function(object, index) {
+  		if (object.name===company) {
+  			dataObjects.splice(index, 1);
+  			console.log(dataObjects);
+  		}
+  	});
+  	symbols.forEach(function(symbol, index) {
+  	if (symbol.ticker ===company) {
+  		symbols.splice(index, 1);
+  		console.log(symbols);
+  	}	
+  	});
+  });
+    
+});
 
-	app.route('/auth/github/callback')
-		.get(passport.authenticate('github', {
-			successRedirect: '/',
-			failureRedirect: '/login'
-		}));
 
-	app.route('/api/:id/clicks')
-		.get(isLoggedIn, clickHandler.getClicks)
-		.post(isLoggedIn, clickHandler.addClick)
-		.delete(isLoggedIn, clickHandler.resetClicks);
 };

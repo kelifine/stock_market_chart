@@ -1,0 +1,72 @@
+html
+head
+    link(rel="stylesheet" href="/public/css/main.css" type="text/css")
+    script(src="https://code.jquery.com/jquery-3.2.1.js"
+  integrity="sha256-DZAnKJ/6XZ9si04Hgrsxu/8s717jcIzLy3oi35EouyE="
+  crossorigin="anonymous")
+    link(rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous")
+    script(src="https://code.highcharts.com/stock/highstock.js")
+    script(src="/socket.io/socket.io.js")
+body
+    div(class="main")
+        div(id="stockChart" width="400" height="400")
+        div(id="codes")
+            div(id="addCode" class="code col-md-4")
+                form(id="addCompany")
+                    div(class="form-group")
+                        label(for="stockCode") Add stock:
+                        input(name="stockCode" type="stockCode" placeholder="Stock code" class="form-control" id="companyTicker")
+                    div(class="form-group")    
+                        button(class="btn btn-success" type="submit") Add
+script.
+    $('document').ready(function(){
+        var graph = new Highcharts.stockChart({
+            chart: {
+                renderTo: 'stockChart',
+                type: 'spline',
+            },
+            title: {
+                text: 'Stock trends'
+            },
+            plotOptions: {
+                spline:{
+                pointInterval: 24 * 3600 * 1000,
+                pointStart: !{locals.from},
+                }
+            },
+            xAxis: {
+            type: 'datetime',
+            ordinal: false
+           },
+           series: [!{JSON.stringify(locals.stocks[0])}],
+           });;
+        var socket = io();
+        var company;
+        $('#addCompany').submit(function (e) {
+            e.preventDefault;
+            company = $('#companyTicker').val();
+            socket.emit('add company', $('#companyTicker').val());
+            $('#companyTicker').val('');
+            return false;
+        });
+        $(".main").on('click', '.close', function() {
+            var company = $(this).siblings('h2').text();
+                    socket.emit('removeCompany', company);
+                    graph.series.forEach(function(object, index) {
+                        if (object.name === company) {
+                            graph.series[index].remove();
+                        }
+                    });
+                    var parent = $(this).parent();
+                    parent.remove();
+        });
+        
+        
+        socket.on('add company', function(dataObjects, symbols) {
+            $('#addCode').after('<div class="code col-md-4"><button type="button" class="close">x</button><h2>'+symbols[symbols.length-1].ticker+'</h2><p>'+symbols[symbols.length-1].name+' adjusted close price.</p></div>'); 
+              graph.addSeries(dataObjects[dataObjects.length-1]);
+        });
+           
+            
+        
+    });
